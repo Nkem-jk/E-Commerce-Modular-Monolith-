@@ -16,7 +16,7 @@ Built with Node.js, Express 5, and Prisma, with Redis-backed background jobs for
 | Background jobs | BullMQ + Redis (`ioredis`)            |
 | AI              | Groq SDK (product descriptions)       |
 | Security        | Helmet, CORS                          |
-| API docs        | Swagger (swagger-jsdoc + swagger-ui)  |
+| API docs        | Swagger / OpenAPI 3 (swagger-jsdoc + swagger-ui) |
 | Tooling         | Jest, Supertest, ESLint, Prettier     |
 
 ## Folder Structure
@@ -42,10 +42,11 @@ E-Commerce-Modular-Monolith-/
     │   │       ├── users.service.js       # Business logic
     │   │       ├── users.repository.js    # Data access
     │   │       ├── users.validation.js    # Joi schemas
+    │   │       ├── users.docs.js          # Swagger / OpenAPI annotations
     │   │       └── users.selects.js       # Reusable Prisma field selections
     │   │
     │   └── shared/                # Cross-cutting infrastructure
-    │       ├── config/            # db (Prisma), redis
+    │       ├── config/            # db (Prisma), redis, swagger (OpenAPI spec)
     │       ├── middlewares/       # auth, validate, errorHandler, notFound
     │       ├── integrations/      # groq (AI descriptions)
     │       ├── queue/             # emailQueue (BullMQ)
@@ -70,6 +71,7 @@ routes → controller → service → repository → database
 - **service** – business rules, orchestration, calls to shared integrations
 - **repository** – all database access (extends `shared/repository/baseRepository`)
 - **validation** – Joi schemas for request bodies
+- **docs** – Swagger/OpenAPI annotations that generate the live API docs
 
 This keeps modules loosely coupled: they talk to each other through services, not by reaching into each other's data.
 
@@ -88,7 +90,7 @@ Defined in [`prisma/schema.prisma`](main-app/prisma/schema.prisma):
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - Redis (for background email jobs)
 
 ### Setup
@@ -100,14 +102,27 @@ npm install
 # Create your environment file
 cp .env.example .env
 
-# Set up the database
-npx prisma migrate dev
+# Set up the database (runs migrations + generates the Prisma client)
+npm run db:migrate
 
-# Start the server
+# Start the server in watch mode
 npm run dev
 ```
 
 The API runs at `http://localhost:5000` (or the `PORT` you set).
+
+### npm scripts
+
+| Script                | What it does                               |
+| --------------------- | ------------------------------------------ |
+| `npm run dev`         | Start the server with nodemon (auto-reload) |
+| `npm start`           | Start the server (production)              |
+| `npm test`            | Run the Jest test suite                    |
+| `npm run lint`        | Lint with ESLint                           |
+| `npm run format`      | Format with Prettier                       |
+| `npm run db:migrate`  | Run Prisma migrations (dev)                |
+| `npm run db:studio`   | Open Prisma Studio to browse the database  |
+| `npm run db:reset`    | Reset the database                         |
 
 ### Environment variables
 
@@ -132,6 +147,29 @@ All routes are versioned under `/api/v1`.
 | POST   | `/api/v1/users/reset-password`  | Reset a password        |
 
 > Product, cart, and order modules follow the same structure and are being added.
+
+## API Documentation (Swagger)
+
+Interactive API docs are generated from OpenAPI annotations (the `*.docs.js` files in each
+module) and served by Swagger UI. Once the server is running:
+
+| URL                                  | What it is                                  |
+| ------------------------------------ | ------------------------------------------- |
+| `http://localhost:5000/api-docs`     | Interactive Swagger UI — browse and try endpoints |
+| `http://localhost:5000/api-docs.json` | Raw OpenAPI 3 spec (importable into Postman) |
+
+**To launch it:**
+
+```bash
+cd main-app
+npm run dev
+```
+
+Then open **http://localhost:5000/api-docs** in your browser. You can send requests straight
+from the page; for protected routes, click **Authorize** and paste your JWT (from the login
+response) to attach it as a Bearer token.
+
+> Adjust the port if you changed `PORT` in your `.env`.
 
 ## Design Notes
 
