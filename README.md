@@ -1,61 +1,85 @@
 # E-Commerce Modular Monolith
 
-An e-commerce backend built as a **modular monolith** — one deployable application, organized into independent feature modules (users, products, cart, orders) that share a common infrastructure layer.
+An e-commerce backend built as a **modular monolith** with a small **supporting service** split out:
 
-Built with Node.js, Express 5, and Prisma, with Redis-backed background jobs for email and optional AI-generated product descriptions.
+- **`main-app/`** — the core application. One deployable Express app, organized into independent feature modules (users, products, cart, orders) over a shared infrastructure layer. Owns the business data and enqueues background work.
+- **`email-service/`** — a standalone transactional-email service. Renders templates, sends via [Resend](https://resend.com), and records every send in an `EmailLog` for idempotency and auditing.
+
+The repository root is an npm workspace that installs, runs, tests, and lints both services together.
+
+```
+┌──────────────┐  enqueue job   ┌─────────┐   consume    ┌───────────┐  POST /email/send   ┌───────────────┐
+│   main-app   │ ─────────────▶ │  Redis  │ ───────────▶ │  worker*  │ ──────────────────▶ │ email-service │ ──▶ Resend
+│  (modules)   │   (BullMQ)     │  queue  │              │           │   (x-api-key)       │  (EmailLog)   │
+└──────────────┘                └─────────┘              └───────────┘                     └───────────────┘
+```
+
+> \* The queue-to-HTTP **worker** that bridges the BullMQ `email` queue to the email service is the next piece to be added. `main-app` already enqueues jobs; `email-service` already accepts them over HTTP.
 
 ## Tech Stack
 
-| Area            | Choice                                |
-| --------------- | ------------------------------------- |
-| Runtime         | Node.js (CommonJS)                    |
-| Web framework   | Express 5                             |
-| Database        | SQLite via Prisma ORM                 |
-| Validation      | Joi                                   |
-| Auth            | JWT (`jsonwebtoken`) + `bcryptjs`     |
-| Background jobs | BullMQ + Redis (`ioredis`)            |
-| AI              | Groq SDK (product descriptions)       |
-| Security        | Helmet, CORS                          |
-| API docs        | Swagger / OpenAPI 3 (swagger-jsdoc + swagger-ui) |
-| Tooling         | Jest, Supertest, ESLint, Prettier     |
+| Area            | main-app                                 | email-service                       |
+| --------------- | ---------------------------------------- | ----------------------------------- |
+| Runtime         | Node.js 20+ (CommonJS)                   | Node.js 20+ (CommonJS)              |
+| Web framework   | Express 5                                | Express 5                           |
+| Database        | SQLite via Prisma ORM                    | SQLite via Prisma ORM               |
+| Validation      | Joi                                      | Joi                                 |
+| Auth            | JWT (`jsonwebtoken`) + `bcryptjs`        | Internal API key (`x-api-key`)      |
+| Background jobs | BullMQ + Redis (`ioredis`)               | —                                   |
+| Email           | — (enqueues jobs)                        | Resend                              |
+| AI              | Groq SDK (product descriptions)          | —                                   |
+| Security        | Helmet, CORS                             | Helmet                              |
+| API docs        | Swagger / OpenAPI 3                      | Swagger / OpenAPI 3                 |
+| Tooling         | Jest, Supertest, ESLint, Prettier        | Jest, Supertest, ESLint, Prettier   |
+
+Workspace orchestration at the root uses **`concurrently`** to run both services with one command.
 
 ## Folder Structure
 
 ```
 E-Commerce-Modular-Monolith-/
-└── main-app/
+├── package.json                  # Workspace scripts (run/test/lint both services together)
+│
+├── main-app/                     # Core modular-monolith application
+│   ├── prisma/
+│   │   ├── migrations/           # Prisma migration history
+│   │   └── schema.prisma         # User, Product, CartItem, Order, OrderItem
+│   └── src/
+│       ├── app.js                # Express app: middleware, routes, error handling
+│       ├── server.js             # Boots the app, graceful shutdown
+│       ├── routes/v1.js          # Mounts module routes under /api/v1
+│       ├── modules/              # Feature modules (users, products, …)
+│       │   └── <module>/
+│       │       ├── *.routes.js       # Route definitions
+│       │       ├── *.controller.js   # Request/response handling
+│       │       ├── *.service.js      # Business logic
+│       │       ├── *.repository.js   # Data access (extends baseRepository)
+│       │       ├── *.validation.js   # Joi schemas
+│       │       ├── *.docs.js         # Swagger / OpenAPI annotations
+│       │       └── *.selects.js      # Reusable Prisma field selections
+│       └── shared/               # Cross-cutting infrastructure
+│           ├── config/           # db (Prisma), redis, swagger
+│           ├── middlewares/      # auth, validate, errorHandler, notFound
+│           ├── integrations/     # groq (AI descriptions)
+│           ├── queue/            # emailQueue (BullMQ)
+│           ├── repository/       # baseRepository (shared CRUD)
+│           └── utils/            # AppError, tokens
+│
+└── email-service/                # Transactional email microservice
     ├── prisma/
-    │   ├── migrations/            # Prisma migration history
-    │   └── schema.prisma          # Data models: User, Product, CartItem, Order, OrderItem
-    │
-    ├── src/
-    │   ├── app.js                 # Express app: middleware, routes, error handling
-    │   ├── server.js              # Boots the app, graceful shutdown
-    │   │
-    │   ├── routes/
-    │   │   └── v1.js              # Mounts module routes under /api/v1
-    │   │
-    │   ├── modules/               # Feature modules (self-contained slices)
-    │   │   └── users/
-    │   │       ├── users.routes.js        # Route definitions
-    │   │       ├── users.controller.js    # Request/response handling
-    │   │       ├── users.service.js       # Business logic
-    │   │       ├── users.repository.js    # Data access
-    │   │       ├── users.validation.js    # Joi schemas
-    │   │       ├── users.docs.js          # Swagger / OpenAPI annotations
-    │   │       └── users.selects.js       # Reusable Prisma field selections
-    │   │
-    │   └── shared/                # Cross-cutting infrastructure
-    │       ├── config/            # db (Prisma), redis, swagger (OpenAPI spec)
-    │       ├── middlewares/       # auth, validate, errorHandler, notFound
-    │       ├── integrations/      # groq (AI descriptions)
-    │       ├── queue/             # emailQueue (BullMQ)
-    │       ├── repository/        # baseRepository (shared CRUD)
-    │       └── utils/             # AppError, tokens
-    │
-    ├── .env.example
-    ├── package.json
-    └── prisma.config.ts
+    │   ├── migrations/
+    │   └── schema.prisma         # EmailLog
+    └── src/
+        ├── app.js
+        ├── server.js
+        ├── routes/v1.js          # Mounts /email
+        ├── modules/email/        # Same layered shape as main-app modules
+        ├── templates/            # welcome, passwordReset, orderConfirmation (HTML)
+        └── shared/
+            ├── config/           # db (Prisma), resend, swagger
+            ├── middlewares/      # apiKey, validate, errorHandler, notFound
+            ├── repository/       # baseRepository
+            └── utils/            # AppError
 ```
 
 ### Module anatomy
@@ -73,16 +97,20 @@ routes → controller → service → repository → database
 - **validation** – Joi schemas for request bodies
 - **docs** – Swagger/OpenAPI annotations that generate the live API docs
 
-This keeps modules loosely coupled: they talk to each other through services, not by reaching into each other's data.
+This keeps modules loosely coupled: they talk to each other through services, not by reaching into each other's data. The same convention is reused inside `email-service`.
 
 ## Data Models
 
-Defined in [`prisma/schema.prisma`](main-app/prisma/schema.prisma):
+**main-app** — [`main-app/prisma/schema.prisma`](main-app/prisma/schema.prisma):
 
 - **User** – account, hashed password, password-reset token
 - **Product** – catalog item; description auto-generated via Groq when omitted
 - **CartItem** – a user's cart line (unique per user + product)
 - **Order** / **OrderItem** – placed orders; item price is frozen at purchase time
+
+**email-service** — [`email-service/prisma/schema.prisma`](email-service/prisma/schema.prisma):
+
+- **EmailLog** – one row per email: `type`, `to`, `subject`, `status` (`pending` → `sent`/`failed`), the provider's id, retry `attempts`, and the `jobId` that makes sends idempotent.
 
 > Prices are stored as integers in **kobo** (₦1,500.00 = `150000`).
 
@@ -91,91 +119,159 @@ Defined in [`prisma/schema.prisma`](main-app/prisma/schema.prisma):
 ### Prerequisites
 
 - Node.js 20+
-- Redis (for background email jobs)
+- Redis (for the main-app background email queue)
+- A [Resend](https://resend.com) API key (for the email service to actually deliver mail)
 
-### Setup
+### Install everything
+
+From the repository root:
 
 ```bash
-cd main-app
-npm install
+npm run install:all
+```
 
-# Create your environment file
-cp .env.example .env
+This installs the root workspace plus both services (`main-app` and `email-service`).
 
-# Set up the database (runs migrations + generates the Prisma client)
-npm run db:migrate
+### Configure environment
 
-# Start the server in watch mode
+Each service has its own `.env` (both are git-ignored). For `main-app`, copy the example:
+
+```bash
+cp main-app/.env.example main-app/.env
+```
+
+For `email-service`, create `email-service/.env` with the variables listed [below](#environment-variables).
+
+### Set up databases
+
+```bash
+# From the repo root — runs migrations for both services
+npm run db:deploy      # apply existing migrations
+npm run db:generate    # (re)generate both Prisma clients
+```
+
+> For local development you can also run `npm run db:migrate` inside an individual service to create new migrations.
+
+### Run both services
+
+```bash
 npm run dev
 ```
 
-The API runs at `http://localhost:5000` (or the `PORT` you set).
+This starts, concurrently:
 
-### npm scripts
+- **main-app** on `http://localhost:5000` (color: blue)
+- **email-service** on `http://localhost:5001` (color: green)
 
-| Script                | What it does                               |
-| --------------------- | ------------------------------------------ |
-| `npm run dev`         | Start the server with nodemon (auto-reload) |
-| `npm start`           | Start the server (production)              |
-| `npm test`            | Run the Jest test suite                    |
-| `npm run lint`        | Lint with ESLint                           |
-| `npm run format`      | Format with Prettier                       |
-| `npm run db:migrate`  | Run Prisma migrations (dev)                |
-| `npm run db:studio`   | Open Prisma Studio to browse the database  |
-| `npm run db:reset`    | Reset the database                         |
+To run a single service, use its own `dev` script, e.g. `npm run dev --prefix email-service`.
+
+### Root npm scripts
+
+| Script                | What it does                                              |
+| --------------------- | --------------------------------------------------------- |
+| `npm run dev`         | Start **both** services with `concurrently`               |
+| `npm run install:all` | Install the root workspace and both services              |
+| `npm test`            | Run the Jest suites for both services                     |
+| `npm run lint`        | Lint both services with ESLint                            |
+| `npm run format`      | Format both services with Prettier                        |
+| `npm run db:deploy`   | Apply Prisma migrations for both services                 |
+| `npm run db:generate` | Generate the Prisma client for both services              |
+
+Each service also keeps its own scripts (`start`, `dev`, `test`, `lint`, `db:migrate`, `db:studio`, `db:reset`, …) — run them with `--prefix main-app` / `--prefix email-service`.
 
 ### Environment variables
 
-| Variable       | Description                               |
-| -------------- | ----------------------------------------- |
-| `DATABASE_URL` | Prisma connection string (SQLite default) |
-| `REDIS_URL`    | Redis connection, e.g. `redis://localhost:6379` |
-| `PORT`         | HTTP port                                 |
-| `JWT_SECRET`   | Secret for signing auth tokens            |
-| `GROQ_API_KEY` | Optional — enables AI product descriptions |
+**main-app**
+
+| Variable       | Description                                      |
+| -------------- | ------------------------------------------------ |
+| `DATABASE_URL` | Prisma connection string (SQLite default)        |
+| `REDIS_URL`    | Redis connection, e.g. `redis://localhost:6379`  |
+| `PORT`         | HTTP port (default `5000`)                        |
+| `JWT_SECRET`   | Secret for signing auth tokens                   |
+| `GROQ_API_KEY` | Optional — enables AI product descriptions        |
+
+**email-service**
+
+| Variable           | Description                                                    |
+| ------------------ | ------------------------------------------------------------- |
+| `DATABASE_URL`     | Prisma connection string (SQLite default)                     |
+| `PORT`             | HTTP port (default `5001`)                                     |
+| `RESEND_API_KEY`   | Resend API key — required to deliver mail                     |
+| `EMAIL_FROM`       | Default sender, e.g. `Shop <onboarding@resend.dev>`           |
+| `INTERNAL_API_KEY` | Shared secret callers must send as the `x-api-key` header     |
 
 ## API
 
+### main-app (`http://localhost:5000`)
+
 All routes are versioned under `/api/v1`.
 
-| Method | Endpoint                      | Description             |
-| ------ | ----------------------------- | ----------------------- |
-| GET    | `/health`                     | Health check            |
-| POST   | `/api/v1/users/register`      | Create an account       |
-| POST   | `/api/v1/users/login`         | Log in, receive a JWT   |
-| POST   | `/api/v1/users/forgot-password` | Request a password reset |
-| POST   | `/api/v1/users/reset-password`  | Reset a password        |
+| Method | Endpoint                        | Description               |
+| ------ | ------------------------------- | ------------------------- |
+| GET    | `/health`                       | Health check              |
+| POST   | `/api/v1/users/register`        | Create an account         |
+| POST   | `/api/v1/users/login`           | Log in, receive a JWT     |
+| POST   | `/api/v1/users/forgot-password` | Request a password reset  |
+| POST   | `/api/v1/users/reset-password`  | Reset a password          |
+| …      | `/api/v1/products`              | Product CRUD + stock check |
 
-> Product, cart, and order modules follow the same structure and are being added.
+> Cart and order modules follow the same structure and are being added.
+
+### email-service (`http://localhost:5001`)
+
+An internal service — every request must include the `x-api-key` header matching `INTERNAL_API_KEY`.
+
+| Method | Endpoint             | Description                               |
+| ------ | -------------------- | ----------------------------------------- |
+| GET    | `/health`            | Health check                              |
+| POST   | `/api/v1/email/send` | Render and send a transactional email     |
+
+**`POST /api/v1/email/send`**
+
+```http
+POST /api/v1/email/send
+x-api-key: <INTERNAL_API_KEY>
+Content-Type: application/json
+
+{
+  "type": "welcome",            // welcome | password_reset | order_confirmation
+  "to": "user@example.com",
+  "jobId": "email:42",          // optional — makes the send idempotent
+  "data": { "name": "Ada" }     // shape depends on `type` (validated per template)
+}
+```
+
+`data` is validated per `type`:
+
+| `type`               | Expected `data`                                                       |
+| -------------------- | --------------------------------------------------------------------- |
+| `welcome`            | `{ name }`                                                            |
+| `password_reset`     | `{ name, resetUrl }`                                                  |
+| `order_confirmation` | `{ name, orderId, total, items: [{ name, quantity, price }] }` (kobo) |
+
+Responses are idempotent on `jobId`: if a job already succeeded, the service returns the existing log instead of sending again. If Resend fails, the row is marked `failed` and the endpoint returns **502** so the caller can retry.
 
 ## API Documentation (Swagger)
 
-Interactive API docs are generated from OpenAPI annotations (the `*.docs.js` files in each
-module) and served by Swagger UI. Once the server is running:
+Both services generate interactive OpenAPI 3 docs from the `*.docs.js` annotations in their modules. Once a service is running:
 
-| URL                                  | What it is                                  |
-| ------------------------------------ | ------------------------------------------- |
-| `http://localhost:5000/api-docs`     | Interactive Swagger UI — browse and try endpoints |
-| `http://localhost:5000/api-docs.json` | Raw OpenAPI 3 spec (importable into Postman) |
+| Service       | Swagger UI                           | Raw OpenAPI spec                        |
+| ------------- | ------------------------------------ | --------------------------------------- |
+| main-app      | `http://localhost:5000/api-docs`     | `http://localhost:5000/api-docs.json`   |
+| email-service | `http://localhost:5001/api-docs`     | `http://localhost:5001/api-docs.json`   |
 
-**To launch it:**
+You can send requests straight from the page. For main-app's protected routes, click **Authorize** and paste your JWT (from the login response) to attach it as a Bearer token.
 
-```bash
-cd main-app
-npm run dev
-```
-
-Then open **http://localhost:5000/api-docs** in your browser. You can send requests straight
-from the page; for protected routes, click **Authorize** and paste your JWT (from the login
-response) to attach it as a Bearer token.
-
-> Adjust the port if you changed `PORT` in your `.env`.
+> Adjust the ports if you changed `PORT` in the relevant `.env`.
 
 ## Design Notes
 
-- **Resilient background work** – email jobs are enqueued, never sent inline. If Redis is down, user actions still succeed and the failure is logged (see [`emailQueue.js`](main-app/src/shared/queue/emailQueue.js)).
+- **Resilient background work** – in main-app, email jobs are enqueued, never sent inline. If Redis is down, user actions still succeed and the failure is logged (see [`emailQueue.js`](main-app/src/shared/queue/emailQueue.js)). Jobs retry up to 5 times with exponential backoff.
+- **Idempotent email delivery** – the email service keys each send on `jobId` and passes an idempotency key to Resend, so a retried job never double-sends. Every attempt is recorded in `EmailLog`.
+- **Service isolation** – the email service is reachable only with the shared `INTERNAL_API_KEY`, compared in constant time to avoid timing attacks (see [`apiKey.js`](email-service/src/shared/middlewares/apiKey.js)).
 - **Graceful degradation** – AI description generation returns `null` instead of throwing when Groq is unavailable, so product creation never fails because of it.
-- **Graceful shutdown** – on `SIGTERM`/`SIGINT`, the server drains the queue and closes Redis and Prisma connections cleanly.
+- **Graceful shutdown** – on `SIGTERM`/`SIGINT`, main-app drains the queue and closes Redis and Prisma connections cleanly.
 
 ## Authors
 

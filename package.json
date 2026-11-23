@@ -1,0 +1,18 @@
+{
+  "name": "e-commerce-modular-monolith",
+  "version": "1.0.0",
+  "private": true,
+  "description": "E-commerce backend: main app, email service and background worker",
+  "scripts": {
+    "dev": "concurrently -n main,email -c blue,green \"npm run dev --prefix main-app\" \"npm run dev --prefix email-service\"",
+    "install:all": "npm install && npm install --prefix main-app && npm install --prefix email-service",
+    "test": "npm test --prefix main-app && npm test --prefix email-service",
+    "db:deploy": "npm run db:deploy --prefix main-app && npm run db:deploy --prefix email-service",
+    "db:generate": "npm run db:generate --prefix main-app && npm run db:generate --prefix email-service",
+    "lint": "npm run lint --prefix main-app && npm run lint --prefix email-service",
+    "format": "npm run format --prefix main-app && npm run format --prefix email-service"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7"
+  }
+}
