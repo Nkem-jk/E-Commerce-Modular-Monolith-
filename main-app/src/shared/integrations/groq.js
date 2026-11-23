@@ -38,8 +38,8 @@ async function generateProductDescription({ name, price }) {
 
   try {
     const completion = await groq.chat.completions.create({
-      model: process.env.GROQ_API_KEY || "openai/gpt-oss-20b",
-      message: [
+      model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+      messages: [
         {
           role: "system",
           content:
