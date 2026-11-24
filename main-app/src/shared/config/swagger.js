@@ -37,7 +37,7 @@ const options = {
               items: {
                 type: "object",
                 properties: {
-                  field: { type: "string", example: "email" },
+                  fields: { type: "string", example: "email" },
                   message: {
                     type: "string",
                     example: "email must be a valid email",

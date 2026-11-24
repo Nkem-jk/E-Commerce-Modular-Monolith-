@@ -3,9 +3,25 @@ const selects = require('./email.selects');
 const templates = require('../../templates');
 const resend = require('../../shared/config/resend');
 const AppError = require('../../shared/utils/AppError');
-const { attempt } = require('joi');
 
-async function sendEmail({ type, to, data, jobId }){
+// Decide whether a failed send is worth retrying.
+// Resend returns a real HTTP `statusCode` on API errors; a thrown network or
+// timeout error has none. Client errors (4xx, except 429 rate-limiting) — bad
+// address, validation failure, invalid payload, auth/config — won't succeed on
+// retry, so they are permanent. Rate limits, Resend 5xx, and thrown
+// network/timeout errors are transient and worth retrying.
+function isRetryable(error) {
+  const status = error?.statusCode;
+
+  if (typeof status === 'number') {
+    return status === 429 || status >= 500;
+  }
+
+  // No status code: a thrown network/timeout error — assume transient.
+  return true;
+}
+
+async function sendEmail({ type, to, data, jobId }) {
   // idempotency: if this job already succeeded, do not send it
   let existing = null;
 
@@ -39,7 +55,7 @@ async function sendEmail({ type, to, data, jobId }){
 
   // Send via Resend
   let result = null;
-  let error = null;
+  let error;
 
   try {
     ({ data: result, error } = await resend.emails.send(
@@ -58,8 +74,13 @@ async function sendEmail({ type, to, data, jobId }){
       select: selects.idOnly
     });
 
-    // 502 = upstream failed; the worker treats this as "retry later"
-    throw new AppError(`[resend] Resend failed: ${error.message}`, 502);
+    // 502 = transient upstream failure, the worker should retry later.
+    // 422 = permanent problem with this request (bad input/config), do not retry.
+    const statusCode = isRetryable(error) ? 502 : 422;
+    throw new AppError(`[resend] Resend failed: ${error.message}`, statusCode, {
+      resendError: error.name ?? null,
+      resendStatus: error.statusCode ?? null,
+    });
   }
 
   const log = await emailRepository.update({

@@ -1,6 +1,6 @@
 const AppError = require("../utils/AppError");
 
-const options = { abortEarly: false, stripeUnknown: true, convert: true };
+const options = { abortEarly: false, stripUnknown: true, convert: true };
 
 function validate(schemas) {
   return (req, _res, next) => {
@@ -23,10 +23,10 @@ function validate(schemas) {
         continue;
       }
 
-      // Express 5 makes req.query read-only, so it's redefinded instead of reassigned
+      // Express 5 makes req.query read-only, so it's redefined instead of reassigned
 
-      if( source === 'query') {
-        Object.defineProperty(req, 'query', { value, writeable: true, configurable: true });
+      if ( source === 'query') {
+        Object.defineProperty(req, 'query', { value, writable: true, configurable: true });
 
       } else {
         req[source] = value;

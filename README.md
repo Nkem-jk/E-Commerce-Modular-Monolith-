@@ -5,7 +5,7 @@ An e-commerce backend built as a **modular monolith** with a small **supporting 
 - **`main-app/`** — the core application. One deployable Express app, organized into independent feature modules (users, products, cart, orders) over a shared infrastructure layer. Owns the business data and enqueues background work.
 - **`email-service/`** — a standalone transactional-email service. Renders templates, sends via [Resend](https://resend.com), and records every send in an `EmailLog` for idempotency and auditing.
 
-The repository root is an npm workspace that installs, runs, tests, and lints both services together.
+The repository root has a package.json with scripts that install, run, test, and lint both services together.
 
 ```
 ┌──────────────┐  enqueue job   ┌─────────┐   consume    ┌───────────┐  POST /email/send   ┌───────────────┐
@@ -32,13 +32,13 @@ The repository root is an npm workspace that installs, runs, tests, and lints bo
 | API docs        | Swagger / OpenAPI 3                      | Swagger / OpenAPI 3                 |
 | Tooling         | Jest, Supertest, ESLint, Prettier        | Jest, Supertest, ESLint, Prettier   |
 
-Workspace orchestration at the root uses **`concurrently`** to run both services with one command.
+Orchestration at the root uses **`concurrently`** to run both services with one command.
 
 ## Folder Structure
 
 ```
 E-Commerce-Modular-Monolith-/
-├── package.json                  # Workspace scripts (run/test/lint both services together)
+├── package.json                  # Root scripts (run/test/lint both services together)
 │
 ├── main-app/                     # Core modular-monolith application
 │   ├── prisma/
@@ -130,7 +130,7 @@ From the repository root:
 npm run install:all
 ```
 
-This installs the root workspace plus both services (`main-app` and `email-service`).
+This installs the root dependencies plus both services (`main-app` and `email-service`).
 
 ### Configure environment
 
@@ -170,7 +170,7 @@ To run a single service, use its own `dev` script, e.g. `npm run dev --prefix em
 | Script                | What it does                                              |
 | --------------------- | --------------------------------------------------------- |
 | `npm run dev`         | Start **both** services with `concurrently`               |
-| `npm run install:all` | Install the root workspace and both services              |
+| `npm run install:all` | Install the root dependencies and both services           |
 | `npm test`            | Run the Jest suites for both services                     |
 | `npm run lint`        | Lint both services with ESLint                            |
 | `npm run format`      | Format both services with Prettier                        |
@@ -190,6 +190,7 @@ Each service also keeps its own scripts (`start`, `dev`, `test`, `lint`, `db:mig
 | `PORT`         | HTTP port (default `5000`)                        |
 | `JWT_SECRET`   | Secret for signing auth tokens                   |
 | `GROQ_API_KEY` | Optional — enables AI product descriptions        |
+| `GROQ_MODEL` | Optional — defaults to openai/gpt-oss-20b        |
 
 **email-service**
 
@@ -216,7 +217,7 @@ All routes are versioned under `/api/v1`.
 | POST   | `/api/v1/users/reset-password`  | Reset a password          |
 | …      | `/api/v1/products`              | Product CRUD + stock check |
 
-> Cart and order modules follow the same structure and are being added.
+
 
 ### email-service (`http://localhost:5001`)
 
@@ -250,7 +251,7 @@ Content-Type: application/json
 | `password_reset`     | `{ name, resetUrl }`                                                  |
 | `order_confirmation` | `{ name, orderId, total, items: [{ name, quantity, price }] }` (kobo) |
 
-Responses are idempotent on `jobId`: if a job already succeeded, the service returns the existing log instead of sending again. If Resend fails, the row is marked `failed` and the endpoint returns **502** so the caller can retry.
+Responses are idempotent on `jobId`: if a job already succeeded, the service returns the existing log instead of sending again. If Resend fails, the row is marked `failed` and the endpoint signals whether a retry is worthwhile: a **502** for transient problems (network/timeout, rate limiting, or a Resend 5xx) that the caller can retry, or a **422** for permanent ones (invalid address, validation failure, bad payload or config) that a retry won't fix.
 
 ## API Documentation (Swagger)
 
@@ -268,7 +269,7 @@ You can send requests straight from the page. For main-app's protected routes, c
 ## Design Notes
 
 - **Resilient background work** – in main-app, email jobs are enqueued, never sent inline. If Redis is down, user actions still succeed and the failure is logged (see [`emailQueue.js`](main-app/src/shared/queue/emailQueue.js)). Jobs retry up to 5 times with exponential backoff.
-- **Idempotent email delivery** – the email service keys each send on `jobId` and passes an idempotency key to Resend, so a retried job never double-sends. Every attempt is recorded in `EmailLog`.
+- **Idempotent email delivery** – the email service keys each send on `jobId` and passes an idempotency key to Resend, so a retried job is designed to avoid sending the same email twice. Every attempt is recorded in `EmailLog`.
 - **Service isolation** – the email service is reachable only with the shared `INTERNAL_API_KEY`, compared in constant time to avoid timing attacks (see [`apiKey.js`](email-service/src/shared/middlewares/apiKey.js)).
 - **Graceful degradation** – AI description generation returns `null` instead of throwing when Groq is unavailable, so product creation never fails because of it.
 - **Graceful shutdown** – on `SIGTERM`/`SIGINT`, main-app drains the queue and closes Redis and Prisma connections cleanly.

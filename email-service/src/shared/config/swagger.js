@@ -37,7 +37,7 @@ module.exports = swaggerJsdoc({
               items: {
                 type: 'object',
                 properties: {
-                  field: { type: 'string' },
+                  fields: { type: 'string' },
                   message: { type: 'string' },
                   in: { type: 'string' },
                 },

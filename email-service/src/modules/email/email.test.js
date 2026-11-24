@@ -91,14 +91,44 @@ describe("POST /api/v1/email/send", () => {
     expect(resend.emails.send).not.toHaveBeenCalled();
   });
 
-  it("returns 502 and marks the log failed when Resend errors", async () => {
+  it("returns 422 and marks the log failed on a permanent Resend error", async () => {
     repo.findOne.mockResolvedValue(null);
     repo.create.mockResolvedValue({ id: 2 });
     resend.emails.send.mockResolvedValue({
       data: null,
-      error: { message: "Invalid from address" },
+      error: {
+        name: "invalid_from_address",
+        message: "Invalid from address",
+        statusCode: 422,
+      },
     });
     repo.update.mockResolvedValue({ id: 2 });
+
+    const res = await request(app)
+      .post(URL)
+      .set("x-api-key", "test-key")
+      .send(welcome);
+
+    expect(res.status).toBe(422);
+    expect(repo.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "failed" }),
+      }),
+    );
+  });
+
+  it("returns 502 and marks the log failed on a transient Resend error", async () => {
+    repo.findOne.mockResolvedValue(null);
+    repo.create.mockResolvedValue({ id: 3 });
+    resend.emails.send.mockResolvedValue({
+      data: null,
+      error: {
+        name: "internal_server_error",
+        message: "Something went wrong",
+        statusCode: 500,
+      },
+    });
+    repo.update.mockResolvedValue({ id: 3 });
 
     const res = await request(app)
       .post(URL)
@@ -111,5 +141,19 @@ describe("POST /api/v1/email/send", () => {
         data: expect.objectContaining({ status: "failed" }),
       }),
     );
+  });
+
+  it("returns 502 when the send throws (network/timeout)", async () => {
+    repo.findOne.mockResolvedValue(null);
+    repo.create.mockResolvedValue({ id: 4 });
+    resend.emails.send.mockRejectedValue(new Error("socket hang up"));
+    repo.update.mockResolvedValue({ id: 4 });
+
+    const res = await request(app)
+      .post(URL)
+      .set("x-api-key", "test-key")
+      .send(welcome);
+
+    expect(res.status).toBe(502);
   });
 });

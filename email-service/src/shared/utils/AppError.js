@@ -3,7 +3,7 @@ class AppError extends Error {
     super(message);
     this.statusCode = statusCode;
     this.details = details;
-    this.isOperational = true; // a know error, safe to show the client
+    this.isOperational = true; // a known error, safe to show the client
   }
 }
 
