@@ -6,15 +6,16 @@ const AppError = require('../../shared/utils/AppError');
 
 // Decide whether a failed send is worth retrying.
 // Resend returns a real HTTP `statusCode` on API errors; a thrown network or
-// timeout error has none. Client errors (4xx, except 429 rate-limiting) — bad
-// address, validation failure, invalid payload, auth/config — won't succeed on
-// retry, so they are permanent. Rate limits, Resend 5xx, and thrown
-// network/timeout errors are transient and worth retrying.
+// timeout error has none. Auth/config failures (401/403 — e.g. a bad
+// RESEND_API_KEY) and rate limits (429), Resend 5xx, and thrown network/timeout
+// errors are transient: fixed by correcting config or waiting, not by changing
+// the request, so they are worth retrying. Other 4xx — bad address, validation
+// failure, invalid payload — won't succeed on retry, so they are permanent.
 function isRetryable(error) {
   const status = error?.statusCode;
 
   if (typeof status === 'number') {
-    return status === 429 || status >= 500;
+    return status === 401 || status === 403 || status === 429 || status >= 500;
   }
 
   // No status code: a thrown network/timeout error — assume transient.

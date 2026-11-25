@@ -1,7 +1,9 @@
 const { UnrecoverableError } = require("bullmq");
 
-// 4xx codes that can succeed if tried again later
-const RETRYABLE_4XX = new Set([408, 409, 429]);
+// 4xx codes that can succeed if tried again later. 401/403 are auth/config
+// failures (e.g. a wrong INTERNAL_API_KEY at deploy): fixed by redeploying with
+// the right key, not by changing the job, so retry rather than fail for good.
+const RETRYABLE_4XX = new Set([401, 403, 408, 409, 429]);
 
 async function sendEmail(payload) {
   let res;

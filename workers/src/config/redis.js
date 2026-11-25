@@ -1,6 +1,6 @@
 const IORedis = require('ioredis');
 
-// BullMQ workers require maxRetriesPerRequest: null so they keep waiing for jobs
+// BullMQ workers require maxRetriesPerRequest: null so they keep waiting for jobs
 // through Redis hiccups instead of crashing
 const connection = new IORedis(process.env.REDIS_URL, {
     maxRetriesPerRequest: null,

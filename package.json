@@ -4,7 +4,7 @@
   "private": true,
   "description": "E-commerce backend: main app, email service and background worker",
   "scripts": {
-    "dev": "concurrently -n main,email, workers -c blue,green,magenta \"npm run dev --prefix main-app\" \"npm run dev --prefix email-service\" \"npm run dev --prefix workers\"",
+    "dev": "concurrently -n main,email,workers -c blue,green,magenta \"npm run dev --prefix main-app\" \"npm run dev --prefix email-service\" \"npm run dev --prefix workers\"",
     "install:all": "npm install && npm install --prefix main-app && npm install --prefix email-service && npm install --prefix workers",
     "test": "npm test --prefix main-app && npm test --prefix email-service && npm test --prefix workers",
     "db:deploy": "npm run db:deploy --prefix main-app && npm run db:deploy --prefix email-service",

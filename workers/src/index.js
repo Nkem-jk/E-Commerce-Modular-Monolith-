@@ -38,6 +38,8 @@ worker.on("completed", (job) => {
 });
 
 worker.on('failed', (job, err) => {
+  if (!job) return;
+  
   const maxAttempts = job.opts.attempts ?? 1;
   const isFinal = err.name === 'UnrecoverableError' || job.attemptsMade >= maxAttempts;
 

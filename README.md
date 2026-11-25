@@ -6,7 +6,7 @@ An e-commerce backend built as a **modular monolith** with small **supporting se
 - **`email-service/`** — a standalone transactional-email service. Renders templates, sends via [Resend](https://resend.com), and records every send in an `EmailLog` for idempotency and auditing.
 - **`workers/`** — a standalone background worker that consumes the BullMQ `email` queue and bridges it to the email service over HTTP. Keeps the two services decoupled: `main-app` never calls `email-service` directly.
 
-The repository root has a package.json with scripts that install, run, test, and lint all three together.
+The repository root has a package.json with scripts that install, run, and test all three together, and lint the two services.
 
 ```
 ┌──────────────┐  enqueue job   ┌─────────┐   consume    ┌───────────┐  POST /email/send   ┌───────────────┐

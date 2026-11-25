@@ -56,9 +56,12 @@ describe('processEmailJob', () => {
     await expect(processEmailJob(job)).rejects.toBeInstanceOf(UnrecoverableError);
   });
 
-  it('fails permanently on 401 (wrong API key)', async () => {
+  it('retries on 401 (wrong API key) — a config error fixed by redeploy, not by the job', async () => {
     fetch.mockResolvedValue(mockResponse(401, { message: 'Invalid API key' }));
 
-    await expect(processEmailJob(job)).rejects.toBeInstanceOf(UnrecoverableError);
+    const err = await processEmailJob(job).catch((e) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(UnrecoverableError);
   });
 });
