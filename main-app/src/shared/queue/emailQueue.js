@@ -1,5 +1,6 @@
 const { Queue } = require("bullmq");
 const connection = require("../config/redis");
+const { randomUUID } = require('crypto');
 
 const EMAIL_QUEUE = "email"; // the worker must use this exact name
 
@@ -19,7 +20,7 @@ const emailQueue = new Queue(EMAIL_QUEUE, {
  */
 async function enqueueEmail(type, to, data) {
   try {
-    const job = await emailQueue.add("send-email", { type, to, data });
+    const job = await emailQueue.add("send-email", { type, to, data }, {jobId: randomUUID() });
     return job.id;
   } catch (error) {
     console.error(
