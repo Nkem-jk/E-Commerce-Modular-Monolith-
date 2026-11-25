@@ -1,6 +1,9 @@
 const jwt = require("jsonwebtoken");
 const AppError = require("../utils/AppError");
 
+const prisma = require("../config/db");
+const permissions = require("../config/permissions");
+
 function authenticate(req,res, next) {
   const header = req.headers.authorization;
 
@@ -30,5 +33,26 @@ function authorizeSelf(paramName = 'userId') {
   }
 }
 
-module.exports = { authenticate, authorizeSelf };
+function authorize(permission) {
+  return async (req, res, next) => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { roleName: true },
+      });
+
+      const allowed = permissions[user?.roleName] ?? [];
+
+      if (!allowed.includes(permission)) {
+        return next(new AppError("You do not have permission to do this", 403));
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+module.exports = { authenticate, authorizeSelf, authorize };
 

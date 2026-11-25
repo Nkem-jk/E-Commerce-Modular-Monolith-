@@ -10,12 +10,12 @@ const prisma = require("../src/shared/config/db");
 const SALT_ROUNDS = 10;
 
 async function main() {
-  const name = process.env.SUPER_ADMIN_NAME || "Super Admin";
+  const name = process.env.SUPER_ADMIN_NAME;
   const email = process.env.SUPER_ADMIN_EMAIL;
   const password = process.env.SUPER_ADMIN_PASSWORD;
 
-  if (!email || !password) {
-    throw new Error("Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in .env first.");
+  if (!name || !email || !password){
+    throw new Error ("Set SUPER_ADMIN_NAME, SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in .env first.")
   }
 
   const existingAdmin = await prisma.user.findFirst({
