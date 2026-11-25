@@ -1,0 +1,5 @@
+node_modules
+.env
+# SQLite dev databases (and their WAL/journal sidecars)
+dev.db
+dev.db-*

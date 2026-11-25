@@ -19,7 +19,7 @@ function prismaToAppError(error) {
   }
 }
 
-function errorHandler(err, req, res, next) {
+function errorHandler(err, req, res, _next) {
   let error = err;
 
   if (err.code && typeof err.code === "string" && err.code.startsWith("P")) {
