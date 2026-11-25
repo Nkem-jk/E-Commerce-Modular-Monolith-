@@ -1,38 +1,37 @@
 # E-Commerce Modular Monolith
 
-An e-commerce backend built as a **modular monolith** with a small **supporting service** split out:
+An e-commerce backend built as a **modular monolith** with small **supporting services** split out:
 
 - **`main-app/`** — the core application. One deployable Express app, organized into independent feature modules (users, products, cart, orders) over a shared infrastructure layer. Owns the business data and enqueues background work.
 - **`email-service/`** — a standalone transactional-email service. Renders templates, sends via [Resend](https://resend.com), and records every send in an `EmailLog` for idempotency and auditing.
+- **`workers/`** — a standalone background worker that consumes the BullMQ `email` queue and bridges it to the email service over HTTP. Keeps the two services decoupled: `main-app` never calls `email-service` directly.
 
-The repository root has a package.json with scripts that install, run, test, and lint both services together.
+The repository root has a package.json with scripts that install, run, test, and lint all three together.
 
 ```
 ┌──────────────┐  enqueue job   ┌─────────┐   consume    ┌───────────┐  POST /email/send   ┌───────────────┐
-│   main-app   │ ─────────────▶ │  Redis  │ ───────────▶ │  worker*  │ ──────────────────▶ │ email-service │ ──▶ Resend
+│   main-app   │ ─────────────▶ │  Redis  │ ───────────▶ │  worker   │ ──────────────────▶ │ email-service │ ──▶ Resend
 │  (modules)   │   (BullMQ)     │  queue  │              │           │   (x-api-key)       │  (EmailLog)   │
 └──────────────┘                └─────────┘              └───────────┘                     └───────────────┘
 ```
 
-> \* The queue-to-HTTP **worker** that bridges the BullMQ `email` queue to the email service is the next piece to be added. `main-app` already enqueues jobs; `email-service` already accepts them over HTTP.
-
 ## Tech Stack
 
-| Area            | main-app                                 | email-service                       |
-| --------------- | ---------------------------------------- | ----------------------------------- |
-| Runtime         | Node.js 20+ (CommonJS)                   | Node.js 20+ (CommonJS)              |
-| Web framework   | Express 5                                | Express 5                           |
-| Database        | SQLite via Prisma ORM                    | SQLite via Prisma ORM               |
-| Validation      | Joi                                      | Joi                                 |
-| Auth            | JWT (`jsonwebtoken`) + `bcryptjs`        | Internal API key (`x-api-key`)      |
-| Background jobs | BullMQ + Redis (`ioredis`)               | —                                   |
-| Email           | — (enqueues jobs)                        | Resend                              |
-| AI              | Groq SDK (product descriptions)          | —                                   |
-| Security        | Helmet, CORS                             | Helmet                              |
-| API docs        | Swagger / OpenAPI 3                      | Swagger / OpenAPI 3                 |
-| Tooling         | Jest, Supertest, ESLint, Prettier        | Jest, Supertest, ESLint, Prettier   |
+| Area            | main-app                                 | email-service                       | workers                              |
+| --------------- | ---------------------------------------- | ----------------------------------- | ------------------------------------ |
+| Runtime         | Node.js 20+ (CommonJS)                   | Node.js 20+ (CommonJS)              | Node.js 20+ (CommonJS)               |
+| Web framework   | Express 5                                | Express 5                           | — (no HTTP server)                   |
+| Database        | SQLite via Prisma ORM                    | SQLite via Prisma ORM               | —                                    |
+| Validation      | Joi                                      | Joi                                 | —                                    |
+| Auth            | JWT (`jsonwebtoken`) + `bcryptjs`        | Internal API key (`x-api-key`)      | Sends `x-api-key` to email-service   |
+| Background jobs | BullMQ + Redis (`ioredis`) — enqueues    | —                                   | BullMQ + Redis (`ioredis`) — consumes |
+| Email           | — (enqueues jobs)                        | Resend                              | — (calls email-service over HTTP)    |
+| AI              | Groq SDK (product descriptions)          | —                                   | —                                    |
+| Security        | Helmet, CORS                             | Helmet                              | —                                    |
+| API docs        | Swagger / OpenAPI 3                      | Swagger / OpenAPI 3                 | —                                    |
+| Tooling         | Jest, Supertest, ESLint, Prettier        | Jest, Supertest, ESLint, Prettier   | Jest, nodemon                        |
 
-Orchestration at the root uses **`concurrently`** to run both services with one command.
+Orchestration at the root uses **`concurrently`** to run all three with one command.
 
 ## Folder Structure
 
@@ -65,21 +64,32 @@ E-Commerce-Modular-Monolith-/
 │           ├── repository/       # baseRepository (shared CRUD)
 │           └── utils/            # AppError, tokens
 │
-└── email-service/                # Transactional email microservice
-    ├── prisma/
-    │   ├── migrations/
-    │   └── schema.prisma         # EmailLog
+├── email-service/                # Transactional email microservice
+│   ├── prisma/
+│   │   ├── migrations/
+│   │   └── schema.prisma         # EmailLog
+│   └── src/
+│       ├── app.js
+│       ├── server.js
+│       ├── routes/v1.js          # Mounts /email
+│       ├── modules/email/        # Same layered shape as main-app modules
+│       ├── templates/            # welcome, passwordReset, orderConfirmation (HTML)
+│       └── shared/
+│           ├── config/           # db (Prisma), resend, swagger
+│           ├── middlewares/      # apiKey, validate, errorHandler, notFound
+│           ├── repository/       # baseRepository
+│           └── utils/            # AppError
+│
+└── workers/                      # Background queue consumer (no HTTP server)
     └── src/
-        ├── app.js
-        ├── server.js
-        ├── routes/v1.js          # Mounts /email
-        ├── modules/email/        # Same layered shape as main-app modules
-        ├── templates/            # welcome, passwordReset, orderConfirmation (HTML)
-        └── shared/
-            ├── config/           # db (Prisma), resend, swagger
-            ├── middlewares/      # apiKey, validate, errorHandler, notFound
-            ├── repository/       # baseRepository
-            └── utils/            # AppError
+        ├── index.js              # Boots the BullMQ Worker, wiring, graceful shutdown
+        ├── config/
+        │   └── redis.js          # ioredis connection (maxRetriesPerRequest: null)
+        ├── clients/
+        │   └── emailService.client.js  # POSTs to email-service, maps HTTP status → retry/fail
+        └── processors/
+            ├── email.processor.js       # Processes one email job
+            └── email.processor.test.js  # Jest tests (success + error paths)
 ```
 
 ### Module anatomy
@@ -152,7 +162,7 @@ npm run db:generate    # (re)generate both Prisma clients
 
 > For local development you can also run `npm run db:migrate` inside an individual service to create new migrations.
 
-### Run both services
+### Run all services
 
 ```bash
 npm run dev
@@ -162,22 +172,25 @@ This starts, concurrently:
 
 - **main-app** on `http://localhost:5000` (color: blue)
 - **email-service** on `http://localhost:5001` (color: green)
+- **workers** — the background queue consumer, no HTTP port (color: magenta)
 
-To run a single service, use its own `dev` script, e.g. `npm run dev --prefix email-service`.
+To run a single piece, use its own `dev` script, e.g. `npm run dev --prefix workers`.
+
+> The worker needs Redis and a reachable `email-service`. It fails fast on startup if `REDIS_URL`, `EMAIL_SERVICE_URL`, or `INTERNAL_API_KEY` are missing.
 
 ### Root npm scripts
 
 | Script                | What it does                                              |
 | --------------------- | --------------------------------------------------------- |
-| `npm run dev`         | Start **both** services with `concurrently`               |
-| `npm run install:all` | Install the root dependencies and both services           |
-| `npm test`            | Run the Jest suites for both services                     |
-| `npm run lint`        | Lint both services with ESLint                            |
-| `npm run format`      | Format both services with Prettier                        |
-| `npm run db:deploy`   | Apply Prisma migrations for both services                 |
-| `npm run db:generate` | Generate the Prisma client for both services              |
+| `npm run dev`         | Start **all three** (main-app, email-service, workers) with `concurrently` |
+| `npm run install:all` | Install the root dependencies and all three                |
+| `npm test`            | Run the Jest suites for all three                          |
+| `npm run lint`        | Lint main-app and email-service with ESLint                |
+| `npm run format`      | Format main-app and email-service with Prettier            |
+| `npm run db:deploy`   | Apply Prisma migrations for both database services         |
+| `npm run db:generate` | Generate the Prisma client for both database services      |
 
-Each service also keeps its own scripts (`start`, `dev`, `test`, `lint`, `db:migrate`, `db:studio`, `db:reset`, …) — run them with `--prefix main-app` / `--prefix email-service`.
+Each piece also keeps its own scripts — run them with `--prefix main-app` / `--prefix email-service` / `--prefix workers`. The worker exposes `start`, `dev`, and `test` (it has no database, so no `db:*` scripts).
 
 ### Environment variables
 
@@ -201,6 +214,16 @@ Each service also keeps its own scripts (`start`, `dev`, `test`, `lint`, `db:mig
 | `RESEND_API_KEY`   | Resend API key — required to deliver mail                     |
 | `EMAIL_FROM`       | Default sender, e.g. `Shop <onboarding@resend.dev>`           |
 | `INTERNAL_API_KEY` | Shared secret callers must send as the `x-api-key` header     |
+
+**workers**
+
+| Variable                  | Description                                                         |
+| ------------------------- | ------------------------------------------------------------------ |
+| `REDIS_URL`               | Redis connection (same queue as main-app), e.g. `redis://localhost:6379` |
+| `EMAIL_SERVICE_URL`       | Base URL of email-service, e.g. `http://localhost:5001/api/v1`     |
+| `INTERNAL_API_KEY`        | Must match email-service's `INTERNAL_API_KEY` (sent as `x-api-key`) |
+| `EMAIL_CONCURRENCY`       | Optional — jobs processed in parallel (default `5`)                 |
+| `EMAIL_RATE_LIMIT_PER_SEC`| Optional — max jobs/sec, to stay under Resend's limit (default `2`) |
 
 ## API
 
@@ -269,10 +292,12 @@ You can send requests straight from the page. For main-app's protected routes, c
 ## Design Notes
 
 - **Resilient background work** – in main-app, email jobs are enqueued, never sent inline. If Redis is down, user actions still succeed and the failure is logged (see [`emailQueue.js`](main-app/src/shared/queue/emailQueue.js)). Jobs retry up to 5 times with exponential backoff.
-- **Idempotent email delivery** – the email service keys each send on `jobId` and passes an idempotency key to Resend, so a retried job is designed to avoid sending the same email twice. Every attempt is recorded in `EmailLog`.
+- **Smart retry classification** – the worker translates the email service's HTTP responses into BullMQ outcomes: transient failures (service unreachable, timeouts, 5xx, or `408`/`409`/`429`) throw a normal error so the job retries, while permanent failures (`400`, `401`, bad payload) throw an `UnrecoverableError` so the job fails immediately without wasting retries (see [`emailService.client.js`](workers/src/clients/emailService.client.js)).
+- **Rate limiting** – the worker caps throughput (default 2 jobs/sec) to stay under Resend's per-second limit, independent of how many jobs are queued.
+- **Idempotent email delivery** – the worker passes each BullMQ job id to the email service, which keys the send on it and passes an idempotency key to Resend, so a retried job is designed to avoid sending the same email twice. Every attempt is recorded in `EmailLog`.
 - **Service isolation** – the email service is reachable only with the shared `INTERNAL_API_KEY`, compared in constant time to avoid timing attacks (see [`apiKey.js`](email-service/src/shared/middlewares/apiKey.js)).
 - **Graceful degradation** – AI description generation returns `null` instead of throwing when Groq is unavailable, so product creation never fails because of it.
-- **Graceful shutdown** – on `SIGTERM`/`SIGINT`, main-app drains the queue and closes Redis and Prisma connections cleanly.
+- **Graceful shutdown** – on `SIGTERM`/`SIGINT`, main-app drains the queue and closes Redis and Prisma connections cleanly. The worker does the same: it stops taking new jobs, lets in-progress jobs finish, then closes its Redis connection before exiting.
 
 ## Authors
 
