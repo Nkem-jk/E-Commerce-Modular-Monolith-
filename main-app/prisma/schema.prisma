@@ -19,6 +19,8 @@ model User {
   password       String      // Never plain text
   resetToken     String?     // Store a hash of the token, not the token itself
   resetTokenExpiry DateTime?
+  roleName       String      @default("customer")
+  role           Role        @relation(fields:[roleName], references: [name])
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -74,4 +76,9 @@ model OrderItem {
 
   order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product     Product @relation(fields: [productId], references: [id])
+}
+
+model Role{
+  name        String  @id
+  user        User[]
 }
