@@ -4,9 +4,10 @@ const productsRepository = require("../products/products.repository");
 const ordersRepository = require("./orders.repository");
 const selects = require("./orders.selects");
 const AppError = require("../../shared/utils/AppError");
+const { sendOrderConfirmationEmail } = require("../../shared/queue/emailQueue");
 
 async function checkout(userId) {
-  return prisma.$transaction(async (tx) => {
+  const order = await prisma.$transaction(async (tx) => {
     const cartItems = await cartRepository.findMany(
       {
         where: { userId },
@@ -64,18 +65,22 @@ async function checkout(userId) {
         },
         tx,
       );
-
-      await cartRepository.delete(
-        {
-          where: { userId_productId: { userId, productId: item.productId } },
-          select: { id: true },
-        },
-        tx,
-      );
     }
 
+    await cartRepository.deleteMany({ where: { userId } }, tx);
+
+    
     return order;
   });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true, email: true },
+  });
+
+  if (user)
+  sendOrderConfirmationEmail(user, order);
+
+  return order;
 }
 
 async function getMyOrders(userId) {
