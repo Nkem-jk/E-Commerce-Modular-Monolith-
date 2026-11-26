@@ -65,16 +65,11 @@ async function checkout(userId) {
         },
         tx,
       );
-
-      await cartRepository.delete(
-        {
-          where: { userId_productId: { userId, productId: item.productId } },
-          select: { id: true },
-        },
-        tx,
-      );
     }
 
+    await cartRepository.deleteMany({ where: { userId } }, tx);
+
+    
     return order;
   });
   const user = await prisma.user.findUnique({
@@ -82,6 +77,7 @@ async function checkout(userId) {
     select: { name: true, email: true },
   });
 
+  if (user)
   sendOrderConfirmationEmail(user, order);
 
   return order;

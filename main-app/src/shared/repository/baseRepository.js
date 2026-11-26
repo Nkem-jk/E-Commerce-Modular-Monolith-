@@ -48,6 +48,10 @@ function createRepository(modelName) {
       requireSelect(select, "delete", modelName);
       return model(tx).delete({ where, select });
     },
+    
+    deleteMany({ where }, tx) {
+      return model(tx).deleteMany({ where }); // returns {count}
+    },
   };
 }
 
